@@ -1,16 +1,25 @@
+// === Импорты и базовая настройка ===
 import express from "express";
-import cors from "cors";
-import bodyParser from "body-parser";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 
+// Загружаем переменные окружения (.env)
 dotenv.config();
 
+// Создаём приложение Express
 const app = express();
-app.use(cors());
-app.use(bodyParser.json());
 
-const PORT = process.env.PORT || 3000;
+// === Поддержка форматов запросов ===
+// JSON — для работы с API и JS-запросами
+app.use(express.json());
+// URL-encoded — чтобы понимать формы, отправленные с Tilda
+app.use(express.urlencoded({ extended: true }));
+
+// === Проверочный маршрут ===
+// Можно открыть в браузере, чтобы убедиться, что сервер живой
+app.get("/", (req, res) => {
+  res.send("AI Trip Planner API работает!");
+});
 
 // 💡 Главный маршрут для Tilda webhook
 app.post("/api/route", async (req, res) => {
