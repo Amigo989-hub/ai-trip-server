@@ -29,10 +29,10 @@ function parseTildaData(body) {
     return body;
 }
 
-// === ДОБАВЬ ЭТОТ КОД ПЕРЕД app.post("/api/route") ===
-app.post("/debug", (req, res) => {
-    console.log("🔧 ДЕБАГ - Полные raw данные от Tilda:", req.body);
-    console.log("🔧 ДЕБАГ - Заголовки:", req.headers);
+app.post('/api/route', (req, res) => {
+  console.log('🔍 ВСЕ ДАННЫЕ ОТ TILDA:');
+  console.log('Тело запроса:', JSON.stringify(req.body, null, 2));
+  console.log('Заголовки:', req.headers);
     
     // Показываем все возможные поля
     const allFields = {};
