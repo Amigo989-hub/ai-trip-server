@@ -1,82 +1,4 @@
-// === Импорты и базовая настройка ===
-import express from "express";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
 
-// Загружаем переменные окружения (.env)
-dotenv.config();
-
-// Создаём приложение Express
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// === Поддержка форматов запросов ===
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// === Ключевая функция: преобразуем данные Tilda в нормальный объект ===
-function parseTildaData(body) {
-    // Если Tilda прислала данные в формате fields[]
-    if (body.fields && Array.isArray(body.fields)) {
-        const result = {};
-        body.fields.forEach(field => {
-            result[field.name] = field.value;
-        });
-        return result;
-    }
-    
-    // Если данные уже в плоском формате
-    return body;
-}
-
-app.post('/api/route', (req, res) => {
-  console.log('🔍 ВСЕ ДАННЫЕ ОТ TILDA:');
-  console.log('Тело запроса:', JSON.stringify(req.body, null, 2));
-  console.log('Заголовки:', req.headers);
-    
-    // Показываем все возможные поля
-    const allFields = {};
-    if (req.body.fields && Array.isArray(req.body.fields)) {
-        req.body.fields.forEach(field => {
-            allFields[field.name] = field.value;
-        });
-    } else {
-        Object.assign(allFields, req.body);
-    }
-    
-    console.log("🔧 ДЕБАГ - Все поля:", allFields);
-    
-    res.json({ 
-        received: req.body,
-        allFields: allFields,
-        message: "Проверь консоль сервера для деталей"
-    });
-});
-// === Главный маршрут для Tilda ===
-app.post("/api/route", async (req, res) => {
-    try {
-        console.log("📨 Получен запрос от Tilda:", req.body);
-        
-        // Преобразуем данные Tilda
-        const data = parseTildaData(req.body);
-        console.log("🔍 Преобразованные данные:", data);
-
-        // Достаем данные из формы
-        const city = data.city || data.City || data.Name || data["Город"];
-        const startDate = data.startDate || data["start-date"] || data["Дата начала"];
-        const endDate = data.endDate || data["end-date"] || data["Дата окончания"];
-        const budget = data.budget || data.Budget || data["Бюджет"];
-        const interests = data.interests || data.Interests || data["Интересы"];
-        const people = data.people || data.People || data["Количество человек"];
-        const email = data.email || data.Email || data["E-mail"];
-
-        // Проверяем обязательные поля
-        if (!city) {
-            console.warn("❌ Не указан город");
-            return res.status(400).json({ 
-                success: false, 
-                error: "Пожалуйста, укажите город назначения" 
-            });
         }
 
         if (!email) {
@@ -175,4 +97,3 @@ app.get("/test", (req, res) => {
 // === Запуск сервера ===
 app.listen(PORT, () => {
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
-});
