@@ -29,6 +29,29 @@ function parseTildaData(body) {
     return body;
 }
 
+// === ДОБАВЬ ЭТОТ КОД ПЕРЕД app.post("/api/route") ===
+app.post("/debug", (req, res) => {
+    console.log("🔧 ДЕБАГ - Полные raw данные от Tilda:", req.body);
+    console.log("🔧 ДЕБАГ - Заголовки:", req.headers);
+    
+    // Показываем все возможные поля
+    const allFields = {};
+    if (req.body.fields && Array.isArray(req.body.fields)) {
+        req.body.fields.forEach(field => {
+            allFields[field.name] = field.value;
+        });
+    } else {
+        Object.assign(allFields, req.body);
+    }
+    
+    console.log("🔧 ДЕБАГ - Все поля:", allFields);
+    
+    res.json({ 
+        received: req.body,
+        allFields: allFields,
+        message: "Проверь консоль сервера для деталей"
+    });
+});
 // === Главный маршрут для Tilda ===
 app.post("/api/route", async (req, res) => {
     try {
