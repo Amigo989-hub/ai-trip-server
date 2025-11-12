@@ -17,20 +17,31 @@ app.post("/api/route", async (req, res) => {
   try {
     let body = req.body;
 
-    // 🧩 Проверяем, если данные пришли из формы Tilda
+    // 🧩 Если Tilda прислала fields[], конвертируем его в обычный объект
     if (body.fields && Array.isArray(body.fields)) {
       const mapped = {};
-      body.fields.forEach(f => mapped[f.name] = f.value);
-      body = mapped; // теперь у нас обычный объект: { city, startDate, endDate, ... }
+      body.fields.forEach(f => {
+        mapped[f.name.trim()] = f.value;
+      });
+      body = mapped;
     }
 
-    const { city, startDate, endDate, budget, interests, people } = body;
+    // 👇 Здесь выводим, что реально пришло
+    console.log("Полученные данные от формы:", body);
+
+    const city = body.city || body.City || body["Город"] || body["Город назначения"];
+    const startDate = body.startDate || body["start_date"] || body["Дата начала"];
+    const endDate = body.endDate || body["end_date"] || body["Дата окончания"];
+    const budget = body.budget || body["Бюджет"];
+    const interests = body.interests || body["Интересы"];
+    const people = body.people || body["Количество человек"];
 
     if (!city) {
+      console.warn("⚠️ Не найдено поле 'city' в данных формы:", body);
       return res.status(400).json({ success: false, error: "Не указан город" });
     }
 
-    // 🧠 Формируем промпт для OpenAI
+    // 🧠 Формируем запрос для OpenAI
     const prompt = `
 Ты — AI-эксперт по путешествиям. 
 Создай персональный маршрут поездки в город ${city}.
@@ -43,7 +54,7 @@ app.post("/api/route", async (req, res) => {
 Пиши живо и красиво, в стиле тревел-блогера.
 `;
 
-    // 🧩 Отправляем запрос в OpenAI API
+    // 🔗 Запрос в OpenAI
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -51,20 +62,16 @@ app.post("/api/route", async (req, res) => {
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // лёгкая и быстрая модель
+        model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.8,
       }),
     });
 
     const data = await response.json();
-
-    // 🧾 Извлекаем текст маршрута
     const tripPlan = data.choices?.[0]?.message?.content || "Не удалось сгенерировать маршрут 😕";
 
-    // ✅ Возвращаем результат обратно на Tilda
     res.json({ success: true, city, route: tripPlan });
-
   } catch (err) {
     console.error("Ошибка в /api/route:", err);
     res.status(500).json({ success: false, error: err.message });
