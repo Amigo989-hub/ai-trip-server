@@ -1,4 +1,71 @@
+// === Импорты и базовая настройка ===
+import express from "express";
+import fetch from "node-fetch";
+import dotenv from "dotenv";
 
+// Загружаем переменные окружения (.env)
+dotenv.config();
+
+// Создаём приложение Express
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// === Поддержка форматов запросов ===
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// === Ключевая функция: преобразуем данные Tilda в нормальный объект ===
+function parseTildaData(body) {
+    // Если Tilda прислала данные в формате fields[]
+    if (body.fields && Array.isArray(body.fields)) {
+        const result = {};
+        body.fields.forEach(field => {
+            result[field.name] = field.value;
+        });
+        return result;
+    }
+    
+    // Если данные уже в плоском формате
+    return body;
+}
+
+// === Главный маршрут для Tilda ===
+app.post("/api/route", async (req, res) => {
+    try {
+        console.log("📨 Получен запрос от Tilda:", req.body);
+        
+        // Логируем все данные для отладки
+        const allFields = {};
+        if (req.body.fields && Array.isArray(req.body.fields)) {
+            req.body.fields.forEach(field => {
+                allFields[field.name] = field.value;
+            });
+        } else {
+            Object.assign(allFields, req.body);
+        }
+        
+        console.log("🔧 ДЕБАГ - Все поля:", allFields);
+        
+        // Преобразуем данные Tilda
+        const data = parseTildaData(req.body);
+        console.log("🔍 Преобразованные данные:", data);
+
+        // Достаем данные из формы
+        const city = data.city || data.City || data.Name || data["Город"];
+        const startDate = data.startDate || data["start-date"] || data["Дата начала"];
+        const endDate = data.endDate || data["end-date"] || data["Дата окончания"];
+        const budget = data.budget || data.Budget || data["Бюджет"];
+        const interests = data.interests || data.Interests || data["Интересы"];
+        const people = data.people || data.People || data["Количество человек"];
+        const email = data.email || data.Email || data["E-mail"];
+
+        // Проверяем обязательные поля
+        if (!city) {
+            console.warn("❌ Не указан город");
+            return res.status(400).json({ 
+                success: false, 
+                error: "Пожалуйста, укажите город назначения" 
+            });
         }
 
         if (!email) {
@@ -40,14 +107,14 @@
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+                "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
             },
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [{ role: "user", content: prompt }],
                 temperature: 0.7,
                 max_tokens: 2000
-            }),
+            })
         });
 
         if (!openaiResponse.ok) {
@@ -61,6 +128,10 @@
 
         console.log("✅ Маршрут сгенерирован");
         console.log("📧 Должны отправить на email:", email);
+        
+        // TODO: Добавь здесь отправку email с маршрутом
+        // Пока просто логируем
+        console.log("📝 Сгенерированный маршрут:", tripPlan);
 
         // ✅ Успешный ответ для Tilda
         res.json({ 
@@ -97,3 +168,4 @@ app.get("/test", (req, res) => {
 // === Запуск сервера ===
 app.listen(PORT, () => {
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
+});
