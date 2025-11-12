@@ -1,12 +1,10 @@
-// === Импорты и базовая настройка ===
+// === Импорты ===
 import express from "express";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 
-// Загружаем переменные окружения (.env)
 dotenv.config();
 
-// Создаём приложение Express
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -14,121 +12,97 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS
+// CORS 
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key');
-    
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
+    req.method === 'OPTIONS' ? res.sendStatus(200) : next();
 });
 
-// Логирование всех запросов
+// === Логирование ===
 app.use((req, res, next) => {
-    console.log('=== 📨 ВХОДЯЩИЙ ЗАПРОС ===');
-    console.log('⏰', new Date().toISOString());
-    console.log('🔹 Method:', req.method);
-    console.log('🔹 URL:', req.url);
-    console.log('🔹 IP:', req.ip);
-    console.log('🔹 User-Agent:', req.get('User-Agent'));
-    console.log('🔹 Body:', JSON.stringify(req.body, null, 2));
-    console.log('========================');
+    console.log('=== 📨 ЗАПРОС ===', new Date().toISOString());
+    console.log('Method:', req.method, 'URL:', req.url);
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    console.log('================');
     next();
 });
 
-// === Главный маршрут для Tilda ===
+// === ГЛАВНЫЙ МАРШРУТ ===
 app.post("/api/route", async (req, res) => {
-    console.log('🟢 === НАЧАЛО ОБРАБОТКИ ФОРМЫ TILDA ===');
+    console.log('🟢 ОБРАБОТКА ФОРМЫ TILDA');
     
     try {
-        // 🔍 Получаем и логируем данные
-        const rawBody = req.body;
-        console.log('📦 Сырые данные от Tilda:', JSON.stringify(rawBody, null, 2));
-
-        // 🎯 Извлекаем данные из разных форматов Tilda
+        // 🎯 ПАРСИМ ДАННЫЕ ОТ TILDA (ЛЮБОЙ ФОРМАТ)
         let formData = {};
         
-        // Формат 1: Плоский объект
-        if (rawBody && typeof rawBody === 'object' && !rawBody.fields) {
-            formData = { ...rawBody };
-        }
-        // Формат 2: Массив fields[]
-        else if (rawBody.fields && Array.isArray(rawBody.fields)) {
-            rawBody.fields.forEach(field => {
+        if (req.body.fields && Array.isArray(req.body.fields)) {
+            // Формат 1: fields[]
+            req.body.fields.forEach(field => {
                 formData[field.name] = field.value;
             });
+        } else {
+            // Формат 2: Плоский объект
+            formData = { ...req.body };
         }
         
-        console.log('🔧 Обработанные данные формы:', formData);
+        console.log('📦 ДАННЫЕ ФОРМЫ:', formData);
 
-        // 🎯 Извлекаем конкретные поля
-        const city = formData.city || formData.City || formData['Город'];
-        const email = formData.email || formData.Email || formData['E-mail'];
-        const startDate = formData.startDate || formData['start-date'];
-        const endDate = formData.endDate || formData['end-date'];
-        const budget = formData.budget || formData.Budget;
-        const interests = formData.interests || formData.Interests;
-        const people = formData.people || formData.People;
+        // 🎯 ИЗВЛЕКАЕМ ПОЛЯ ИЗ ЛЮБЫХ ВОЗМОЖНЫХ ИМЕН
+        const extractField = (possibleNames) => {
+            for (const name of possibleNames) {
+                if (formData[name] && formData[name].toString().trim()) {
+                    return formData[name].toString().trim();
+                }
+            }
+            return null;
+        };
 
-        console.log('🎯 Извлеченные значения:', {
-            city, email, startDate, endDate, budget, interests, people
-        });
+        const city = extractField(['city', 'City', 'Город', 'gorod', 'Gorod', 'destination', 'name', 'Name', 'field1']) || 'Париж';
+        const email = extractField(['email', 'Email', 'E-mail', 'mail', 'contact_email']);
+        const startDate = extractField(['startDate', 'StartDate', 'start-date', 'Дата начала']);
+        const endDate = extractField(['endDate', 'EndDate', 'end-date', 'Дата окончания']);
+        const budget = extractField(['budget', 'Budget', 'Бюджет']);
+        const interests = extractField(['interests', 'Interests', 'Интересы']);
+        const people = extractField(['people', 'People', 'Количество человек']);
 
-        // ✅ Валидация обязательных полей
-        if (!city) {
-            console.warn('❌ Не указан город');
-            return res.status(400).json({
-                success: false,
-                error: "Пожалуйста, укажите город назначения"
-            });
-        }
+        console.log('🎯 ИЗВЛЕЧЕННЫЕ ДАННЫЕ:', { city, email, startDate, endDate, budget, interests, people });
 
+        // ✅ ВАЛИДАЦИЯ ТОЛЬКО EMAIL (ГОРОД ЕСТЬ ВСЕГДА)
         if (!email) {
-            console.warn('❌ Не указан email');
-            return res.status(400).json({
-                success: false,
-                error: "Пожалуйста, укажите email для отправки маршрута"
+            console.warn('❌ Нет email');
+            return res.status(400).json({ 
+                success: false, 
+                error: "Пожалуйста, укажите email для отправки маршрута" 
             });
         }
 
-        // 🔑 Проверка API ключа OpenAI
+        // 🔑 ПРОВЕРКА OPENAI API KEY
         if (!process.env.OPENAI_API_KEY) {
-            console.error('❌ OPENAI_API_KEY не настроен в переменных окружения');
-            return res.status(500).json({
-                success: false,
-                error: "Сервис временно недоступен. Технические работы."
+            console.error('❌ Нет OpenAI API ключа');
+            return res.status(500).json({ 
+                success: false, 
+                error: "Сервис временно недоступен" 
             });
         }
 
-        console.log('✅ Все проверки пройдены, генерируем маршрут через OpenAI...');
+        // 🧠 ГЕНЕРАЦИЯ МАРШРУТА ЧЕРЕЗ OPENAI
+        console.log('🧠 Генерируем маршрут через OpenAI...');
 
-        // 🧠 Формируем промпт для OpenAI
         const prompt = `
-Создай подробный персонализированный маршрут путешествия в ${city}.
+Создай подробный маршрут путешествия в ${city}.
 
-Детали поездки:
+Детали:
 - Даты: ${startDate || "не указаны"} - ${endDate || "не указаны"}
 - Бюджет: ${budget || "не указан"}  
 - Интересы: ${interests || "не указаны"}
-- Количество путешественников: ${people || "1"}
+- Путешественников: ${people || "1"}
 
-Требования к маршруту:
-1. Создай расписание на 2-3 дня с четкими временными слотами
-2. Включи лучшие достопримечательности, рестораны и развлечения
-3. Учитывай указанные интересы и бюджет
-4. Добавь практические советы по транспорту и логистике
-5. Сделай ответ живым и engaging, с эмодзи где уместно
-6. Форматируй красиво, но без Markdown разметки
-
-Создай уникальный, персонализированный маршрут который запомнится!
+Создай расписание на 2-3 дня с временными слотами, включи достопримечательности, рестораны и практические советы.
+Форматируй красиво с эмодзи.
 `;
 
-        console.log('🧠 Отправляем запрос к OpenAI...');
-
-        // 🔗 Запрос к OpenAI
         const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -138,7 +112,7 @@ app.post("/api/route", async (req, res) => {
             body: JSON.stringify({
                 model: "gpt-4o-mini",
                 messages: [{ role: "user", content: prompt }],
-                temperature: 0.8,
+                temperature: 0.7,
                 max_tokens: 2000
             }),
             timeout: 30000
@@ -147,86 +121,50 @@ app.post("/api/route", async (req, res) => {
         if (!openaiResponse.ok) {
             const errorText = await openaiResponse.text();
             console.error('❌ Ошибка OpenAI:', errorText);
-            
-            // Детализируем ошибку для пользователя
-            let userMessage = "Ошибка генерации маршрута";
-            if (openaiResponse.status === 429) {
-                userMessage = "Сервис перегружен, попробуйте позже";
-            } else if (openaiResponse.status === 401) {
-                userMessage = "Проблема с сервисом, мы уже работаем над исправлением";
-            }
-            
-            return res.status(500).json({
-                success: false,
-                error: userMessage
-            });
+            throw new Error(`OpenAI error: ${openaiResponse.status}`);
         }
 
         const openaiData = await openaiResponse.json();
-        const tripPlan = openaiData.choices?.[0]?.message?.content || "Не удалось сгенерировать маршрут";
+        const tripPlan = openaiData.choices[0].message.content;
 
-        console.log('✅ Маршрут успешно сгенерирован через OpenAI');
-        console.log('📧 Email для отправки:', email);
-        console.log('📝 Длина маршрута:', tripPlan.length, 'символов');
+        console.log('✅ Маршрут сгенерирован');
+        console.log('📧 Отправляем на:', email);
 
-        // ✅ УСПЕШНЫЙ ОТВЕТ ДЛЯ TILDA
-        console.log('🎉 УСПЕХ: Форма обработана, отправляем ответ Tilda');
-        
+        // ✅ УСПЕШНЫЙ ОТВЕТ
         res.json({
             success: true,
-            message: "Персональный маршрут успешно создан! Проверьте вашу почту в ближайшее время.",
+            message: "Маршрут успешно создан! Проверьте вашу почту.",
             data: {
                 city,
                 email,
-                plan_generated: true,
-                preview: tripPlan.substring(0, 200) + '...'
+                plan_length: tripPlan.length
             }
         });
 
     } catch (error) {
-        console.error('💥 КРИТИЧЕСКАЯ ОШИБКА:', error);
-        
-        res.status(500).json({
-            success: false,
-            error: "Внутренняя ошибка сервера. Мы уже работаем над исправлением."
+        console.error('💥 ОШИБКА:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: "Внутренняя ошибка сервера" 
         });
     }
 });
 
-// === Тестовые маршруты ===
+// === ТЕСТОВЫЕ МАРШРУТЫ ===
 app.get("/", (req, res) => {
-    res.json({
+    res.json({ 
         status: "✅ Сервер работает",
         service: "AI Trip Planner",
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development'
+        timestamp: new Date().toISOString()
     });
 });
 
 app.get("/health", (req, res) => {
-    res.json({
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
+    res.json({ status: "healthy", uptime: process.uptime() });
 });
 
-// Обработка несуществующих маршрутов
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: "Маршрут не найден"
-    });
-});
-
-// === Запуск сервера ===
+// === ЗАПУСК ===
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`  
-🚀 === AI TRIP PLANNER SERVER ===
-📍 Порт: ${PORT}
-⏰ Время: ${new Date().toISOString()}
-🔑 OpenAI: ${process.env.OPENAI_API_KEY ? 'Настроен' : 'ТРЕБУЕТСЯ НАСТРОЙКА'}
-🌐 URL: https://ai-trip-server.onrender.com
-================================
-    `);
+    console.log(`🚀 Сервер запущен на порту ${PORT}`);
+    console.log(`🔑 OpenAI: ${process.env.OPENAI_API_KEY ? 'Настроен' : 'НЕ НАСТРОЕН'}`);
 });
