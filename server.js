@@ -2,11 +2,15 @@
 import express from "express";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import bodyParser from "body-parser";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 
 // === Middleware ===
 app.use(express.json({ limit: "10mb" }));
