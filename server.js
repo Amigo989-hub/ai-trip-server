@@ -366,7 +366,7 @@ const sendEmailViaResend = async (email, subject, htmlContent) => {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "AI Trip Planner <onboarding@resend.dev>",
+        from: "Airravel Team <support@airravel.com>",
         to: [email],
         subject: subject,
         html: htmlContent,
