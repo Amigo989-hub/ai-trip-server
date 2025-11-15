@@ -1,157 +1,209 @@
-// === Импорты и базовые настройки ===
 import express from "express";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-import bodyParser from "body-parser";
-
-dotenv.config();
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+import querystring from "querystring";
+import { config } from "./src/config/index.js";
+import logger from "./src/utils/logger.js";
+import { requestLogger } from "./src/middleware/requestLogger.js";
+import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.js";
+import routeHandler from "./src/routes/routeHandler.js";
+import cacheService from "./src/services/cacheService.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.server.port;
+const HOST = config.server.host;
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+// === Trust Proxy (для правильной работы за reverse proxy) ===
+if (config.security.trustProxy) {
+  app.set("trust proxy", 1);
+}
 
-// === Middleware ===
+// === Security Headers ===
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Отключаем для API
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// === Compression ===
+app.use(compression());
+
+// === CORS ===
+app.use(
+  cors({
+    origin: config.security.corsOrigin,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+
+// === Rate Limiting ===
+const limiter = rateLimit({
+  windowMs: config.rateLimit.windowMs,
+  max: config.rateLimit.max,
+  message: {
+    success: false,
+    error: "Too many requests from this IP, please try again later.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn("Rate limit exceeded", {
+      ip: req.ip,
+      url: req.url,
+    });
+    res.status(429).json({
+      success: false,
+      error: "Too many requests, please try again later.",
+    });
+  },
+});
+
+app.use("/api/", limiter);
+
+// === Fallback для text/plain (до других парсеров) ===
+app.use((req, res, next) => {
+  const contentType = req.headers["content-type"] || "";
+  if (contentType.includes("text/plain")) {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk.toString();
+    });
+    req.on("end", () => {
+      try {
+        // Пробуем распарсить как JSON
+        req.body = JSON.parse(data);
+        logger.debug("text/plain parsed as JSON");
+      } catch (e) {
+        // Если не JSON, парсим как URL-encoded
+        req.body = querystring.parse(data);
+        logger.debug("text/plain parsed as URL-encoded");
+      }
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+// === Body Parsing ===
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// === CORS ===
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
+// === Request Logging ===
+app.use(requestLogger);
+
+// === Health Check ===
+app.get("/health", (req, res) => {
+  const uptime = process.uptime();
+  const memory = process.memoryUsage();
+  const cacheStats = cacheService.getStats();
+
+  res.json({
+    status: "healthy",
+    uptime: `${Math.floor(uptime)}s`,
+    timestamp: new Date().toISOString(),
+    memory: {
+      rss: `${Math.round(memory.rss / 1024 / 1024)}MB`,
+      heapTotal: `${Math.round(memory.heapTotal / 1024 / 1024)}MB`,
+      heapUsed: `${Math.round(memory.heapUsed / 1024 / 1024)}MB`,
+    },
+    cache: cacheStats,
+    environment: config.server.env,
+  });
 });
 
-// === Логирование ===
-app.use((req, res, next) => {
-  console.log("\n=== 📨 ЗАПРОС ОТ TILDA ===");
-  console.log("⏰", new Date().toISOString());
-  console.log("➡️", req.method, req.url);
-  console.log("BODY:", JSON.stringify(req.body, null, 2));
-  console.log("========================\n");
-  next();
+// === Root ===
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    service: "AI Travel Route Generator",
+    version: "2.0.0",
+    endpoint: "/api/route",
+    health: "/health",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// === Универсальный парсер данных из Tilda ===
-const parseTildaData = (body) => {
-  const result = {};
-  if (body.fields && Array.isArray(body.fields)) {
-    for (const field of body.fields) {
-      result[field.name] = field.value;
-    }
-  } else {
-    Object.assign(result, body);
-  }
-  return result;
-};
+// === API Routes ===
+app.use("/", routeHandler);
 
-// === Извлечение поля с возможными именами ===
-const extractField = (data, names) => {
-  for (const name of names) {
-    if (data[name] && data[name].trim()) return data[name].trim();
-  }
-  return null;
-};
+// === 404 Handler ===
+app.use(notFoundHandler);
 
-// === Функция генерации промпта ===
-const buildPrompt = (city, start, end, budget, interests, people) => `
-Ты — профессиональный travel-планировщик.
-Создай детальный маршрут поездки в ${city}.
-📅 Даты: ${start || "не указаны"} - ${end || "не указаны"}
-💰 Бюджет: ${budget || "не указан"}
-🎯 Интересы: ${interests || "не указаны"}
-👥 Путешественников: ${people || "1"}
+// === Error Handler ===
+app.use(errorHandler);
 
-Опиши каждый день с утра до вечера:
-- что посетить, где поесть, что попробовать
-- добавь советы по транспорту и атмосфере
-- используй эмодзи и короткие абзацы
-`;
+// === Graceful Shutdown ===
+const server = app.listen(PORT, HOST, () => {
+  logger.info("Server started", {
+    port: PORT,
+    host: HOST,
+    environment: config.server.env,
+    openai: config.openai.apiKey ? "configured" : "missing",
+    email: config.email.from || config.email.smtp.auth?.user ? "configured" : "missing",
+    cache: config.cache.enabled ? "enabled" : "disabled",
+  });
 
-// === Главный маршрут ===
-app.post("/api/route", async (req, res) => {
-  try {
-    const data = parseTildaData(req.body);
-
-    const city = extractField(data, ["city", "City", "Город", "destination"]);
-    const email = extractField(data, ["email", "Email", "E-mail"]);
-    const startDate = extractField(data, ["startDate", "start-date"]);
-    const endDate = extractField(data, ["endDate", "end-date"]);
-    const budget = extractField(data, ["budget", "Budget"]);
-    const interests = extractField(data, ["interests", "Интересы"]);
-    const people = extractField(data, ["people", "Persons", "Количество"]);
-
-    // Минимальная валидация
-    if (!city || !email) {
-      console.warn("⚠️ Некорректные данные из формы:", { city, email });
-      return res.status(200).json({
-        success: true,
-        message: "Заявка принята! Менеджер свяжется с вами для уточнения.",
-      });
-    }
-
-    // ⚡ Мгновенный ответ Тильде (чтобы не словить timeout)
-    res.status(200).json({
-      success: true,
-      message: "Маршрут генерируется. Проверьте почту в течение 5 минут!",
-    });
-
-    // === Асинхронная генерация маршрута ===
-    console.log(`🧠 Генерация маршрута для ${city} (${email})...`);
-
-    const prompt = buildPrompt(city, startDate, endDate, budget, interests, people);
-
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1800,
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const err = await aiResponse.text();
-      console.error("❌ Ошибка OpenAI:", err);
-      return;
-    }
-
-    const result = await aiResponse.json();
-    const plan = result.choices?.[0]?.message?.content || "Маршрут не удалось создать.";
-
-    console.log("✅ Маршрут сгенерирован для:", city);
-    console.log(plan.slice(0, 200) + "...");
-
-    // 💌 TODO: Отправка письма с маршрутом пользователю
-    // Здесь можно будет добавить Mailgun или Resend API
-
-  } catch (err) {
-    console.error("💥 Ошибка обработки запроса:", err);
-  }
-});
-
-// === Тестовые маршруты ===
-app.get("/", (req, res) =>
-  res.json({ status: "OK", endpoint: "/api/route", time: new Date().toISOString() })
-);
-app.get("/health", (req, res) =>
-  res.json({ status: "healthy", uptime: process.uptime(), time: new Date().toISOString() })
-);
-
-// === Запуск ===
-app.listen(PORT, "0.0.0.0", () => {
   console.log(`
-🚀 AI Trip Planner READY
-📍 PORT: ${PORT}
-🔑 OpenAI: ${process.env.OPENAI_API_KEY ? "✅ Loaded" : "❌ Missing"}
-🕒 Started: ${new Date().toISOString()}
-`);
+╔══════════════════════════════════════════════╗
+║     🚀 AI Travel Planner READY               ║
+╠══════════════════════════════════════════════╣
+║  📍 Port:        ${PORT.toString().padEnd(31)}║
+║  🌍 Host:        ${HOST.padEnd(31)}║
+║  🔧 Environment: ${config.server.env.padEnd(31)}║
+║  🔑 OpenAI:      ${(config.openai.apiKey ? "✅ Configured" : "❌ Missing").padEnd(31)}║
+║  📧 Email:       ${((config.email.from || config.email.smtp.auth?.user) ? "✅ Configured" : "⚠️  Not configured").padEnd(31)}║
+║  💾 Cache:       ${(config.cache.enabled ? "✅ Enabled" : "❌ Disabled").padEnd(31)}║
+║  🕒 Started:     ${new Date().toISOString().padEnd(31)}║
+╚══════════════════════════════════════════════╝
+  `);
 });
+
+// === Graceful Shutdown Handler ===
+const gracefulShutdown = (signal) => {
+  logger.info(`Received ${signal}, starting graceful shutdown`);
+
+  server.close(() => {
+    logger.info("HTTP server closed");
+
+    // Очистка кэша
+    if (cacheService.enabled) {
+      cacheService.clear();
+    }
+
+    logger.info("Graceful shutdown completed");
+    process.exit(0);
+  });
+
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    logger.error("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+};
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// === Unhandled Errors ===
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught Exception", {
+    error: error.message,
+    stack: error.stack,
+  });
+  gracefulShutdown("uncaughtException");
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("Unhandled Rejection", {
+    reason: reason?.message || reason,
+    promise: promise.toString(),
+  });
+});
+
+export default app;

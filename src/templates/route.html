@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Маршрут поездки в {{city}}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+    
+    .email-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    
+    .header .dates {
+      font-size: 16px;
+      opacity: 0.9;
+      margin-top: 10px;
+    }
+    
+    .content {
+      padding: 40px 30px;
+    }
+    
+    .greeting {
+      font-size: 18px;
+      margin-bottom: 20px;
+      color: #555;
+    }
+    
+    .intro {
+      font-size: 16px;
+      color: #666;
+      margin-bottom: 30px;
+      line-height: 1.8;
+    }
+    
+    .route-content {
+      background: #f9f9f9;
+      border-left: 4px solid #667eea;
+      padding: 25px;
+      border-radius: 5px;
+      margin-top: 20px;
+      white-space: pre-wrap;
+      font-size: 15px;
+      line-height: 1.8;
+      color: #333;
+    }
+    
+    .route-content h2, .route-content h3 {
+      color: #667eea;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+    
+    .route-content h2:first-child {
+      margin-top: 0;
+    }
+    
+    .route-content ul, .route-content ol {
+      margin-left: 20px;
+      margin-bottom: 15px;
+    }
+    
+    .route-content li {
+      margin-bottom: 8px;
+    }
+    
+    .route-content strong {
+      color: #764ba2;
+    }
+    
+    .footer {
+      background-color: #f9f9f9;
+      padding: 30px;
+      text-align: center;
+      border-top: 1px solid #e0e0e0;
+    }
+    
+    .footer p {
+      margin: 5px 0;
+      color: #666;
+      font-size: 14px;
+    }
+    
+    .footer .signature {
+      color: #333;
+      font-weight: 500;
+      margin-top: 15px;
+    }
+    
+    @media only screen and (max-width: 600px) {
+      .header h1 {
+        font-size: 24px;
+      }
+      
+      .content {
+        padding: 25px 20px;
+      }
+      
+      .route-content {
+        padding: 20px;
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-container">
+    <div class="header">
+      <h1>🌍 Маршрут поездки в {{city}}</h1>
+      {{dates}}
+    </div>
+    
+    <div class="content">
+      <div class="greeting">
+        {{name}}
+      </div>
+      
+      <div class="intro">
+        Ваш персональный маршрут готов! Вот детальный план поездки, составленный специально для вас. 
+        Сохраните это письмо, чтобы не потерять маршрут во время путешествия.
+      </div>
+      
+      <div class="route-content">
+        {{route}}
+      </div>
+    </div>
+    
+    <div class="footer">
+      <p class="signature">С уважением,<br>AI Travel Planner</p>
+      <p>Это автоматическое письмо, пожалуйста не отвечайте на него.</p>
+      <p>Приятного путешествия! ✈️</p>
+    </div>
+  </div>
+</body>
+</html>
+
