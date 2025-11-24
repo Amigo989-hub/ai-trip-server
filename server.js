@@ -145,11 +145,28 @@ const parseTildaData = (body) => {
 // === Извлечение поля с возможными именами ===
 const extractField = (data, names) => {
   if (!data || typeof data !== 'object') return null;
+  
+  // Сначала пробуем точное совпадение
   for (const name of names) {
     const value = data[name];
     const normalized = normalizeText(value);
     if (normalized) return normalized;
   }
+  
+  // Если не нашли, пробуем поиск без учета регистра и пробелов
+  const dataKeys = Object.keys(data);
+  const normalizedDataKeys = dataKeys.map(k => k.toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_'));
+  
+  for (const name of names) {
+    const normalizedName = name.toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
+    const index = normalizedDataKeys.indexOf(normalizedName);
+    if (index !== -1) {
+      const value = data[dataKeys[index]];
+      const normalized = normalizeText(value);
+      if (normalized) return normalized;
+    }
+  }
+  
   return null;
 };
 
@@ -339,6 +356,7 @@ app.post("/api/route", async (req, res) => {
     // Быстрый парсинг данных
     const data = parseTildaData(req.body || {});
     console.log("📊 Распарсенные данные:", data);
+    console.log("📋 Все ключи в данных:", Object.keys(data));
 
     // Быстрое извлечение полей
     const city = extractField(data, ["city", "City", "Город", "destination", "город", "CITY"]);
@@ -352,7 +370,12 @@ app.post("/api/route", async (req, res) => {
       "interests_list",
       "INTERESTS",
       "интересы",
-      "travel_interests"
+      "travel_interests",
+      "interest",
+      "Interest",
+      "INTEREST",
+      "выбор_интересов",
+      "выбор интересов"
     ]);
     const customInterest = extractField(data, [
       "customInterest",
@@ -371,7 +394,15 @@ app.post("/api/route", async (req, res) => {
       "person",
       "PEOPLE",
       "travelers",
-      "guests"
+      "guests",
+      "guests_count",
+      "guestsCount",
+      "количество_человек",
+      "количество человек",
+      "number_of_people",
+      "numberOfPeople",
+      "num_people",
+      "numPeople"
     ]);
     const commentRaw = extractField(data, [
       "comment",
@@ -381,6 +412,16 @@ app.post("/api/route", async (req, res) => {
       "notes",
       "additional_info"
     ]);
+
+    // Детальное логирование сырых данных для отладки
+    console.log("🔍 Сырые данные полей:", {
+      rawInterests: rawInterests,
+      rawInterestsType: typeof rawInterests,
+      customInterest: customInterest,
+      peopleRaw: peopleRaw,
+      peopleRawType: typeof peopleRaw,
+      commentRaw: commentRaw
+    });
 
     const interestsList = buildInterests(rawInterests, customInterest);
     const people = normalizeText(peopleRaw) || "1";
@@ -393,6 +434,7 @@ app.post("/api/route", async (req, res) => {
       endDate,
       budget,
       interests: interestsList,
+      interestsCount: interestsList.length,
       people,
       comment
     });
@@ -621,7 +663,7 @@ const sendEmailViaResend = async (email, subject, htmlContent) => {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "AI Trip Planner <onboarding@resend.dev>",
+        from: "AI Trip Planner <info@airravel.com>",
         to: [email],
         subject: subject,
         html: htmlContent,
