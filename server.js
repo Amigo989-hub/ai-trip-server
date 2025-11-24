@@ -147,15 +147,76 @@ const extractField = (data, names) => {
   if (!data || typeof data !== 'object') return null;
   for (const name of names) {
     const value = data[name];
-    if (value !== undefined && value !== null && String(value).trim()) {
-      return String(value).trim();
-    }
+    const normalized = normalizeText(value);
+    if (normalized) return normalized;
   }
   return null;
 };
 
+// === Нормализация текстовых значений ===
+const normalizeText = (value) => {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const lowered = text.toLowerCase();
+  if (["null", "undefined", "nan"].includes(lowered)) return null;
+  return text;
+};
+
+// === Разбор интересов + "Свой вариант" ===
+const buildInterests = (rawInterests, customInterest) => {
+  const interestsSet = new Set();
+
+  const pushInterest = (val) => {
+    const normalized = normalizeText(val);
+    if (!normalized) return;
+    const lowered = normalized.toLowerCase();
+    if (lowered === "свой вариант" || lowered === "свой вариант *") return;
+    interestsSet.add(normalized);
+  };
+
+  const tryParseArray = (value) => {
+    if (!value) return false;
+    if (Array.isArray(value)) {
+      value.forEach(pushInterest);
+      return true;
+    }
+    const text = normalizeText(value);
+    if (!text) return false;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(pushInterest);
+        return true;
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+    return false;
+  };
+
+  if (!tryParseArray(rawInterests)) {
+    const fallback = normalizeText(rawInterests);
+    if (fallback) {
+      fallback
+        .split(/[,;\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach(pushInterest);
+    }
+  }
+
+  const normalizedCustom = normalizeText(customInterest);
+  if (normalizedCustom) {
+    interestsSet.add(normalizedCustom);
+  }
+
+  return Array.from(interestsSet);
+};
+
 // === Функция генерации промпта ===
-const buildPrompt = (city, start, end, budget, interests, people) => {
+const buildPrompt = (city, start, end, budget, interests, people, comment) => {
+  const interestsBlock = interests?.length ? interests.join(", ") : "не указаны";
   return `Ты — профессиональный travel-консьерж уровня luxury, создающий индивидуальные путешествия под ключ. 
 Твоя задача — не просто описать маршрут, а продать мечту о путешествии, чтобы клиент захотел его реализовать прямо сейчас.
 
@@ -163,8 +224,9 @@ const buildPrompt = (city, start, end, budget, interests, people) => {
 
 📅 Даты поездки: ${start || "не указаны"} — ${end || "не указаны"}
 💰 Уровень бюджета: ${budget || "не указан"}
-🎯 Интересы: ${interests || "не указаны"}
+🎯 Интересы: ${interestsBlock}
 👥 Путешественников: ${people || "1"}
+${comment ? `📝 Дополнительные пожелания: ${comment}` : ""}
 
 ## Формат ответа:
 
@@ -186,7 +248,7 @@ const buildPrompt = (city, start, end, budget, interests, people) => {
 – Укажи район, ссылку (примерную), цену за ночь.  
 – Добавь короткое описание атмосферы (“винтажный шарм”, “вид на старый город”).  
 – Для каждого варианта добавь кнопку-приглашение в стиле:  
-  👉 **[Узнать больше](замаскируй ссылку прямо в текст, что бы её не было видно, но она была кликабельна)**
+  👉 **[Узнать больше](примерная_ссылка)**
 
 ---
 
@@ -198,7 +260,7 @@ const buildPrompt = (city, start, end, budget, interests, people) => {
 
 Каждое место сопровождай коротким описанием, почему стоит посетить.  
 Добавляй кнопку:  
-👉 **[Узнать больше о месте](замаскируй ссылку прямо в текст, что бы её не было видно, но она была кликабельна)**
+👉 **[Узнать больше о месте](примерная_ссылка)**
 
 ---
 
@@ -206,7 +268,7 @@ const buildPrompt = (city, start, end, budget, interests, people) => {
 – Выдели 2–3 блюда и кафе.  
 – Опиши атмосферу (уютное, богемное, street food и т.п.)  
 – Добавь ссылки или названия заведений с кнопками:  
-  👉 **[Подробнее о кафе](замаскируй ссылку прямо в текст, что бы её не было видно, но она была кликабельна)**
+  👉 **[Подробнее о кафе](примерная_ссылка)**
 
 ---
 
@@ -284,10 +346,56 @@ app.post("/api/route", async (req, res) => {
     const startDate = extractField(data, ["startDate", "start-date", "start_date", "StartDate", "дата_начала"]);
     const endDate = extractField(data, ["endDate", "end-date", "end_date", "EndDate", "дата_окончания"]);
     const budget = extractField(data, ["budget", "Budget", "бюджет", "BUDGET"]);
-    const interests = extractField(data, ["interests", "Интересы", "interests", "INTERESTS"]);
-    const people = extractField(data, ["people", "Persons", "Количество", "количество", "person", "PEOPLE"]);
+    const rawInterests = extractField(data, [
+      "interests",
+      "Интересы",
+      "interests_list",
+      "INTERESTS",
+      "интересы",
+      "travel_interests"
+    ]);
+    const customInterest = extractField(data, [
+      "customInterest",
+      "custom_interest",
+      "interests_custom",
+      "interest_custom",
+      "Свой вариант",
+      "Другой интерес",
+      "other_interest"
+    ]);
+    const peopleRaw = extractField(data, [
+      "people",
+      "Persons",
+      "Количество",
+      "количество",
+      "person",
+      "PEOPLE",
+      "travelers",
+      "guests"
+    ]);
+    const commentRaw = extractField(data, [
+      "comment",
+      "comments",
+      "Комментарий",
+      "комментарий",
+      "notes",
+      "additional_info"
+    ]);
 
-    console.log("🔍 Извлеченные поля:", { city, email, startDate, endDate, budget, interests, people });
+    const interestsList = buildInterests(rawInterests, customInterest);
+    const people = normalizeText(peopleRaw) || "1";
+    const comment = normalizeText(commentRaw);
+
+    console.log("🔍 Извлеченные поля:", {
+      city,
+      email,
+      startDate,
+      endDate,
+      budget,
+      interests: interestsList,
+      people,
+      comment
+    });
 
     // ⚡ ВСЕГДА отправляем ответ быстро для Tilda (до любых длительных операций)
     // Минимальная валидация - но всегда отвечаем успехом для Tilda
@@ -316,7 +424,7 @@ app.post("/api/route", async (req, res) => {
             console.log(`🧠 Генерация маршрута для ${city} (${email})...`);
           }
 
-          const prompt = buildPrompt(city, startDate, endDate, budget, interests, people);
+          const prompt = buildPrompt(city, startDate, endDate, budget, interestsList, people, comment);
 
           // Увеличиваем таймаут до 90 секунд (OpenAI иногда работает медленнее)
           const controller = new AbortController();
@@ -513,7 +621,7 @@ const sendEmailViaResend = async (email, subject, htmlContent) => {
         Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "AI Trip Planner <info@airravel.com>",
+        from: "AI Trip Planner <onboarding@resend.dev>",
         to: [email],
         subject: subject,
         html: htmlContent,
